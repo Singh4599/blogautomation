@@ -200,7 +200,7 @@ def get_blog_id(handle=BLOG_HANDLE):
     raise ValueError("No blogs found on this Shopify store.")
 
 
-def publish_article(blog_id, topic, body_html, seo):
+def publish_article(blog_id, topic, body_html, seo, photo=None):
     tags = ", ".join(topic.get("tags", [topic["category"]]))
     payload = {
         "article": {
@@ -225,6 +225,13 @@ def publish_article(blog_id, topic, body_html, seo):
             ]
         }
     }
+    
+    if photo:
+        payload["article"]["image"] = {
+            "src": photo["url"],
+            "alt": photo["alt"]
+        }
+
     res = requests.post(
         f"{BASE}/blogs/{blog_id}/articles.json",
         headers=SHOPIFY_HEADERS,
@@ -300,7 +307,7 @@ def main():
     print(f"   Blog ID: {blog_id}")
 
     print("\n🚀 Publishing to Shopify...")
-    status, resp = publish_article(blog_id, topic, body_html, seo)
+    status, resp = publish_article(blog_id, topic, body_html, seo, photo)
 
     elapsed = round(time.time() - start_time, 1)
 
