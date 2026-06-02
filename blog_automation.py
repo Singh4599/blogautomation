@@ -40,7 +40,7 @@ BASE = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
 
 # ─── Gemini API (Direct HTTP — no SDK needed) ────────────────────────────────
 GEMINI_MODEL    = "gemini-1.5-flash"
-GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent"
+GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
 def call_gemini(prompt, temperature=0.75, max_tokens=2048):
