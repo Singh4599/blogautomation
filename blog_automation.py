@@ -13,9 +13,6 @@ import sys
 import json
 import time
 import requests
-from google import genai
-# pyrefly: ignore [missing-import]
-from google.genai import types
 from datetime import datetime, timezone
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -23,7 +20,7 @@ SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "2f284e-5e.myshopify.com")
 SHOPIFY_TOKEN   = os.environ.get("SHOPIFY_ACCESS_TOKEN")
 GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY")
 API_VERSION     = "2024-01"
-BLOG_HANDLE     = "news"          # Shopify blog handle
+BLOG_HANDLE     = "news"
 DRY_RUN         = "--dry-run" in sys.argv
 
 # ─── Validate Secrets ─────────────────────────────────────────────────────────
@@ -34,16 +31,36 @@ if not GEMINI_API_KEY:
     print("❌ Missing GEMINI_API_KEY environment variable.")
     sys.exit(1)
 
-# ─── Setup Gemini ─────────────────────────────────────────────────────────────
-client = genai.Client(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = "gemini-1.5-flash"
-
 # ─── Shopify Headers ──────────────────────────────────────────────────────────
-HEADERS = {
+SHOPIFY_HEADERS = {
     "X-Shopify-Access-Token": SHOPIFY_TOKEN,
     "Content-Type": "application/json"
 }
 BASE = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
+
+# ─── Gemini API (Direct HTTP — no SDK needed) ────────────────────────────────
+GEMINI_MODEL    = "gemini-1.5-flash"
+GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent"
+
+
+def call_gemini(prompt, temperature=0.75, max_tokens=2048):
+    """Call Gemini REST API directly — works with any free tier key."""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens
+        }
+    }
+    res = requests.post(
+        GEMINI_URL,
+        params={"key": GEMINI_API_KEY},
+        json=payload,
+        timeout=60
+    )
+    res.raise_for_status()
+    data = res.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,20 +68,14 @@ BASE = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_topics():
-    """Load topic bank from JSON file."""
     topics_file = os.path.join(os.path.dirname(__file__), "blog_topics.json")
     with open(topics_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def get_todays_topic(topics):
-    """
-    Deterministically pick a topic based on the current date.
-    This ensures a different topic each day and cycles through all topics
-    before repeating — no duplicates for 70+ days.
-    """
     now = datetime.now(timezone.utc)
-    day_of_year = now.timetuple().tm_yday            # 1-365
-    year_offset  = (now.year - 2025) * 365           # shift each year
+    day_of_year = now.timetuple().tm_yday
+    year_offset  = (now.year - 2025) * 365
     index = (day_of_year + year_offset) % len(topics)
     return topics[index]
 
@@ -74,8 +85,7 @@ def get_todays_topic(topics):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_blog_body(topic):
-    """Call Gemini AI to write a full SEO-optimised blog post in HTML."""
-    prompt = f"""You are an expert content writer for 365 Spicery, a premium Indian spice manufacturer and B2B exporter headquartered in India. The company specialises in blended spices, seasonings, chilli powder, turmeric, cumin, chutney powders, dip mixes, dehydrated spices, Jain spices, spice pastes, and private-label manufacturing.
+    prompt = f"""You are an expert content writer for 365 Spicery, a premium Indian spice manufacturer and B2B exporter based in India. The company specialises in blended spices, seasonings, chilli powder, turmeric, cumin, chutney powders, dip mixes, dehydrated spices, Jain spices, spice pastes, and private-label manufacturing.
 
 Write a professional, SEO-optimised blog post on the following topic:
 
@@ -92,29 +102,20 @@ STRICT REQUIREMENTS:
    - Opening paragraph (no heading) — hook the reader immediately
    - 3–4 <h2> sections with substantial, useful content
    - Optional <h3> sub-sections where relevant
-   - A closing paragraph with a natural, non-pushy call-to-action mentioning 365 Spicery
+   - A closing paragraph with a natural call-to-action mentioning 365 Spicery
 5. Mention "365 Spicery" naturally 3–4 times — do NOT over-promote
-6. Make the content genuinely educational and useful — not just keyword filler
+6. Make the content genuinely educational and useful — not keyword filler
 7. Do NOT include: <html>, <head>, <body>, <title>, or any meta tags
-8. Do NOT use markdown formatting — return ONLY raw HTML starting from the first <p> tag
+8. Do NOT use markdown — return ONLY raw HTML starting from the first <p> tag
 9. No code blocks or triple backticks in your response
 
 Write the blog post now:"""
 
     print("   → Calling Gemini AI (this may take 15–30 seconds)...")
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.75,
-            max_output_tokens=2048,
-        )
-    )
-    return response.text.strip()
+    return call_gemini(prompt, temperature=0.75, max_tokens=2048)
 
 
 def generate_seo_meta(topic):
-    """Ask Gemini to generate a punchy SEO title and meta description."""
     prompt = f"""Generate SEO metadata for a blog post about "{topic['title']}" targeting the keyword "{topic['keyword']}".
 
 Return ONLY a valid JSON object with these two keys (no markdown, no code blocks):
@@ -127,13 +128,8 @@ Rules:
 - seo_title: max 60 characters, include keyword, brand name "365 Spicery" if it fits
 - meta_description: max 155 characters, compelling, include keyword naturally"""
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt
-    )
-    raw = response.text.strip()
+    raw = call_gemini(prompt, temperature=0.3, max_tokens=200)
 
-    # Strip markdown code fences if present
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -141,14 +137,12 @@ Rules:
     raw = raw.strip()
 
     try:
-        meta = json.loads(raw)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        # Fallback: build from topic data
-        meta = {
+        return {
             "seo_title": topic["title"][:60],
             "meta_description": f"Discover expert insights on {topic['keyword']}. 365 Spicery — India's trusted spice manufacturer."[:155]
         }
-    return meta
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -156,24 +150,20 @@ Rules:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_blog_id(handle=BLOG_HANDLE):
-    """Fetch Shopify blog ID by handle."""
-    res = requests.get(f"{BASE}/blogs.json", headers=HEADERS, timeout=15)
+    res = requests.get(f"{BASE}/blogs.json", headers=SHOPIFY_HEADERS, timeout=15)
     res.raise_for_status()
     blogs = res.json().get("blogs", [])
     for blog in blogs:
         if blog["handle"] == handle:
             return blog["id"]
-    # Fall back to first available blog
     if blogs:
-        print(f"   ⚠️  Blog '{handle}' not found. Using first available: {blogs[0]['handle']}")
+        print(f"   ⚠️  Blog '{handle}' not found. Using: {blogs[0]['handle']}")
         return blogs[0]["id"]
     raise ValueError("No blogs found on this Shopify store.")
 
 
 def publish_article(blog_id, topic, body_html, seo):
-    """Create and publish the article on Shopify."""
     tags = ", ".join(topic.get("tags", [topic["category"]]))
-
     payload = {
         "article": {
             "title":      topic["title"],
@@ -197,10 +187,9 @@ def publish_article(blog_id, topic, body_html, seo):
             ]
         }
     }
-
     res = requests.post(
         f"{BASE}/blogs/{blog_id}/articles.json",
-        headers=HEADERS,
+        headers=SHOPIFY_HEADERS,
         json=payload,
         timeout=20
     )
@@ -220,42 +209,32 @@ def main():
         print("🔍  DRY RUN MODE — post will NOT be published")
     print("=" * 60)
 
-    # Step 1: Load topics & pick today's
     topics = load_topics()
     topic  = get_todays_topic(topics)
     print(f"\n📝 Today's Topic  : {topic['title']}")
     print(f"🔑 Target Keyword : {topic['keyword']}")
     print(f"🏷️  Category       : {topic['category']}")
-    print(f"👥 Audience       : {topic['audience']}")
 
-    # Step 2: Generate blog body
     print("\n🤖 Generating blog content with Gemini AI...")
     body_html = generate_blog_body(topic)
-    word_count = len(body_html.split())
-    print(f"✅ Content generated (~{word_count} tokens)")
+    print(f"✅ Content generated!")
 
-    # Step 3: Generate SEO metadata
     print("\n🔍 Generating SEO metadata...")
     seo = generate_seo_meta(topic)
     print(f"   SEO Title  : {seo['seo_title']}")
     print(f"   Meta Desc  : {seo['meta_description']}")
 
-    # Step 4: Preview or Publish
     if DRY_RUN:
         print("\n" + "─" * 60)
-        print("📄 BLOG POST PREVIEW (first 500 chars of HTML):")
-        print("─" * 60)
+        print("📄 PREVIEW (first 500 chars):")
         print(body_html[:500] + "...")
-        print("─" * 60)
         print("\n✅ Dry run complete. No post was published.")
         return
 
-    # Step 5: Get blog ID
     print("\n📚 Fetching Shopify blog ID...")
     blog_id = get_blog_id()
     print(f"   Blog ID: {blog_id}")
 
-    # Step 6: Publish
     print("\n🚀 Publishing to Shopify...")
     status, resp = publish_article(blog_id, topic, body_html, seo)
 
@@ -265,7 +244,6 @@ def main():
         article = resp.get("article", {})
         print(f"\n✅ Published successfully in {elapsed}s!")
         print(f"   Article ID : {article.get('id')}")
-        print(f"   Handle     : {article.get('handle')}")
         print(f"   URL        : https://{SHOPIFY_STORE}/blogs/{BLOG_HANDLE}/{article.get('handle')}")
     else:
         print(f"\n❌ Publish failed — HTTP {status}")
