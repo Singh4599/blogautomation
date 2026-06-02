@@ -13,7 +13,9 @@ import sys
 import json
 import time
 import requests
-import google.generativeai as genai
+from google import genai
+# pyrefly: ignore [missing-import]
+from google.genai import types
 from datetime import datetime, timezone
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -33,8 +35,8 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 # ─── Setup Gemini ─────────────────────────────────────────────────────────────
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = "gemini-2.0-flash"
 
 # ─── Shopify Headers ──────────────────────────────────────────────────────────
 HEADERS = {
@@ -100,9 +102,10 @@ STRICT REQUIREMENTS:
 Write the blog post now:"""
 
     print("   → Calling Gemini AI (this may take 15–30 seconds)...")
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=0.75,
             max_output_tokens=2048,
         )
@@ -124,7 +127,10 @@ Rules:
 - seo_title: max 60 characters, include keyword, brand name "365 Spicery" if it fits
 - meta_description: max 155 characters, compelling, include keyword naturally"""
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt
+    )
     raw = response.text.strip()
 
     # Strip markdown code fences if present
