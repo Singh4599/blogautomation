@@ -43,8 +43,8 @@ GEMINI_MODEL    = "gemini-2.5-flash"
 GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
-def call_gemini(prompt, temperature=0.75, max_tokens=2048):
-    """Call Gemini REST API directly — works with any free tier key."""
+def call_gemini(prompt, temperature=0.75, max_tokens=2048, retries=3):
+    """Call Gemini REST API directly — with retry on transient errors."""
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -52,15 +52,23 @@ def call_gemini(prompt, temperature=0.75, max_tokens=2048):
             "maxOutputTokens": max_tokens
         }
     }
-    res = requests.post(
-        GEMINI_URL,
-        params={"key": GEMINI_API_KEY},
-        json=payload,
-        timeout=60
-    )
+    for attempt in range(1, retries + 1):
+        res = requests.post(
+            GEMINI_URL,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+            timeout=60
+        )
+        if res.status_code in (429, 500, 503):
+            wait = attempt * 10
+            print(f"   ⚠️ HTTP {res.status_code} — retrying in {wait}s (attempt {attempt}/{retries})...")
+            time.sleep(wait)
+            continue
+        res.raise_for_status()
+        data = res.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     res.raise_for_status()
-    data = res.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    return ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -220,7 +228,14 @@ def main():
     print(f"✅ Content generated!")
 
     print("\n🔍 Generating SEO metadata...")
-    seo = generate_seo_meta(topic)
+    try:
+        seo = generate_seo_meta(topic)
+    except Exception as e:
+        print(f"   ⚠️ SEO generation failed ({e}) — using fallback.")
+        seo = {
+            "seo_title": topic["title"][:60],
+            "meta_description": f"Discover expert insights on {topic['keyword']}. 365 Spicery — India's trusted spice manufacturer."[:155]
+        }
     print(f"   SEO Title  : {seo['seo_title']}")
     print(f"   Meta Desc  : {seo['meta_description']}")
 
