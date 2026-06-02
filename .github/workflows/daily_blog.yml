@@ -1,0 +1,52 @@
+name: 🌶️ Daily Blog Post - 365 Spicery
+
+on:
+  schedule:
+    # Runs every day at 3:30 AM UTC = 9:00 AM IST
+    - cron: '30 3 * * *'
+  
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (generate but do not publish)?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  publish-blog-post:
+    name: Generate & Publish Blog Post
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set Up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: 🌶️ Run Blog Automation
+        env:
+          SHOPIFY_STORE:        ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python blog_automation.py --dry-run
+          else
+            python blog_automation.py
+          fi
+
+      - name: ✅ Done
+        run: echo "Blog post automation completed successfully!"
