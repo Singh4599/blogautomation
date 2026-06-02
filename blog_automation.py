@@ -39,7 +39,7 @@ SHOPIFY_HEADERS = {
 BASE = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
 
 # ─── Gemini API (Direct HTTP — no SDK needed) ────────────────────────────────
-GEMINI_MODEL    = "gemini-1.5-flash"
+GEMINI_MODEL    = "gemini-2.5-flash"
 GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
