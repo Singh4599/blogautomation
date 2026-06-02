@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "2f284e-5e.myshopify.com")
 SHOPIFY_TOKEN   = os.environ.get("SHOPIFY_ACCESS_TOKEN")
 GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY")
+PEXELS_API_KEY  = os.environ.get("PEXELS_API_KEY", "")
 API_VERSION     = "2024-01"
 BLOG_HANDLE     = "news"
 DRY_RUN         = "--dry-run" in sys.argv
@@ -41,6 +42,35 @@ BASE = f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
 # ─── Gemini API (Direct HTTP — no SDK needed) ────────────────────────────────
 GEMINI_MODEL    = "gemini-2.5-flash"
 GEMINI_URL      = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+
+# ─── Pexels Image Fetch ───────────────────────────────────────────────────────
+def fetch_pexels_image(keyword):
+    """Fetch a relevant hero image from Pexels for the blog post."""
+    if not PEXELS_API_KEY:
+        return None
+    try:
+        # Try specific keyword first, fallback to 'Indian spices'
+        for query in [keyword, "Indian spices", "spices cooking"]:
+            res = requests.get(
+                "https://api.pexels.com/v1/search",
+                headers={"Authorization": PEXELS_API_KEY},
+                params={"query": query, "per_page": 3, "orientation": "landscape"},
+                timeout=10
+            )
+            if res.status_code == 200:
+                photos = res.json().get("photos", [])
+                if photos:
+                    photo = photos[0]
+                    return {
+                        "url": photo["src"]["large"],
+                        "alt": photo.get("alt", keyword),
+                        "photographer": photo.get("photographer", "Pexels"),
+                        "photo_url": photo.get("url", "https://www.pexels.com")
+                    }
+    except Exception as e:
+        print(f"   ⚠️ Pexels fetch failed: {e}")
+    return None
 
 
 def call_gemini(prompt, temperature=0.75, max_tokens=2048, retries=3):
@@ -226,6 +256,25 @@ def main():
     print("\n🤖 Generating blog content with Gemini AI...")
     body_html = generate_blog_body(topic)
     print(f"✅ Content generated!")
+
+    # ─── Fetch hero image from Pexels ─────────────────────────────────────────
+    print("\n📸 Fetching hero image from Pexels...")
+    photo = fetch_pexels_image(topic["keyword"])
+    if photo:
+        hero = (
+            f'<div style="margin-bottom:2rem;">'
+            f'<img src="{photo["url"]}" alt="{photo["alt"]}" '
+            f'style="width:100%;border-radius:8px;object-fit:cover;max-height:480px;" />'
+            f'<p style="font-size:0.75rem;color:#888;margin-top:6px;">'
+            f'Photo by <a href="{photo["photo_url"]}" target="_blank" rel="noopener">'
+            f'{photo["photographer"]}</a> on '
+            f'<a href="https://www.pexels.com" target="_blank" rel="noopener">Pexels</a></p>'
+            f'</div>'
+        )
+        body_html = hero + body_html
+        print(f"   ✅ Image added: {photo['alt'][:60]}")
+    else:
+        print("   ⚠️ No image found — publishing without hero image.")
 
     print("\n🔍 Generating SEO metadata...")
     try:
